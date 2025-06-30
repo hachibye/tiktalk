@@ -3,26 +3,36 @@ const fs = require("fs");
 const path = require("path");
 const WebSocket = require("ws");
 
-const server = http.createServer((req, res) => {
-  if (req.url === "/") {
-    const file = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(file);
-  } else if (req.url === "/client.js") {
-    res.writeHead(200, { "Content-Type": "application/javascript" });
-    res.end(fs.readFileSync(path.join(__dirname, "public", "client.js"), "utf8"));
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-});
+// 靜態檔案服務處理
+const serveStatic = (req, res) => {
+  const filePath = path.join(__dirname, "public", req.url === "/" ? "index.html" : req.url.slice(1));
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404);
+      return res.end("Not Found");
+    }
 
+    const ext = path.extname(filePath);
+    const mime = {
+      ".html": "text/html",
+      ".js": "application/javascript",
+      ".css": "text/css"
+    }[ext] || "text/plain";
+
+    res.writeHead(200, { "Content-Type": mime });
+    res.end(data);
+  });
+};
+
+const server = http.createServer(serveStatic);
+
+// WebSocket 設定
 const wss = new WebSocket.Server({ server });
 
 let waiting = [];
 const pairs = new Map();
 const lastActive = new Map();
-const messageFlags = new Map(); // 雙方是否都發言
+const messageFlags = new Map(); // 紀錄每一對雙方是否都有發言
 
 wss.on("connection", (ws, req) => {
   const ip = req.socket.remoteAddress;
@@ -52,17 +62,16 @@ wss.on("connection", (ws, req) => {
         lastActive.set(ws, Date.now());
         lastActive.set(partner, Date.now());
 
-        // 紀錄發言
         const pairKey = getPairKey(ws, partner);
+        const prev = messageFlags.get(pairKey) || {};
         messageFlags.set(pairKey, {
           [ws.nickname]: true,
-          [partner.nickname]: messageFlags.get(pairKey)?.[partner.nickname] || false
+          [partner.nickname]: prev[partner.nickname] || false
         });
 
         ws.send(JSON.stringify({ type: "message", message: parsed.message, nickname: parsed.nickname }));
         partner.send(JSON.stringify({ type: "message", message: parsed.message, nickname: parsed.nickname }));
 
-        // 雙方都發過話，清除倒數
         const flags = messageFlags.get(pairKey);
         if (flags[ws.nickname] && flags[partner.nickname]) {
           clearTimeout(ws.inactivityTimer);
