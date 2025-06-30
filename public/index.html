@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>匿名即時配對聊天室</title>
+  <script defer src="/client.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="w-full max-w-md bg-white rounded-xl shadow-lg p-6 space-y-4">
+    <h1 class="text-xl font-bold text-center">匿名即時聊天室</h1>
+
+    <div id="lobby">
+      <input id="nickname" type="text" placeholder="輸入你的暱稱" class="w-full p-2 border rounded" />
+      <button id="start" onclick="startChat()" class="w-full bg-blue-500 text-white py-2 rounded mt-2 hover:bg-blue-600">開始聊天</button>
+    </div>
+
+    <div id="status" class="text-sm text-center text-gray-600"></div>
+
+    <div id="chat" class="hidden flex flex-col space-y-2">
+      <div class="text-center text-sm text-gray-600">
+        你正在與 <span id="partner-name" class="font-semibold"></span> 聊天
+      </div>
+      <div id="countdown" class="text-center text-xs text-red-500 font-medium"></div>
+      <div id="messages" class="flex flex-col h-64 overflow-y-auto border p-2 rounded space-y-1 bg-gray-50"></div>
+      <div id="typing-indicator" class="text-xs text-gray-500 h-4 px-1"></div>
+      <textarea id="message" placeholder="輸入訊息..." class="w-full p-2 border rounded resize-none h-20"></textarea>
+      <div class="flex justify-between space-x-2 mt-2">
+        <button onclick="leaveChat()" class="flex-1 bg-red-500 text-white py-2 rounded hover:bg-red-600">離開聊天室</button>
+        <button onclick="location.reload()" class="flex-1 bg-gray-400 text-white py-2 rounded hover:bg-gray-500">回到首頁</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
