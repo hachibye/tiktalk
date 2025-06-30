@@ -3,11 +3,7 @@ let nickname = "";
 let typing = false;
 let typingTimeout;
 let partnerName = "";
-
-let countdownInterval;
-let remainingTime = 300; // 5分鐘倒數
-let hasSentMessageSelf = false;
-let hasSentMessagePartner = false;
+let timerInterval;
 
 const lobby = document.getElementById("lobby");
 const chat = document.getElementById("chat");
@@ -16,7 +12,10 @@ const messages = document.getElementById("messages");
 const messageInput = document.getElementById("message");
 const partnerDisplay = document.getElementById("partner-name");
 const typingIndicator = document.getElementById("typing-indicator");
-const countdownDisplay = document.getElementById("countdown");
+const countdown = document.getElementById("countdown");
+
+let hasSentMessage = false;
+let countdownTime = 5 * 60; // 5 minutes in seconds
 
 function startChat() {
   nickname = document.getElementById("nickname").value.trim();
@@ -43,21 +42,28 @@ function startChat() {
         status.textContent = "";
         lobby.classList.add("hidden");
         chat.classList.remove("hidden");
-
         startCountdown();
       }
 
       if (msg.type === "message") {
-        const isPartner = msg.nickname !== nickname;
-        addMessage(msg.message, isPartner ? "partner" : "self", msg.nickname);
+        const sender = msg.nickname === nickname ? "self" : "partner";
+        addMessage(msg.message, sender, msg.nickname);
 
-        if (isPartner) {
-          hasSentMessagePartner = true;
+        if (msg.nickname !== nickname) {
+          // 對方發過訊息了，取消倒數需要雙方都有發言
+          hasSentMessage = true;
+          if (window.partnerSentMessage) {
+            stopCountdown();
+          } else {
+            window.partnerSentMessage = true;
+          }
         } else {
-          hasSentMessageSelf = true;
+          // 我發過訊息了
+          hasSentMessage = true;
+          if (window.partnerSentMessage) {
+            stopCountdown();
+          }
         }
-
-        checkCancelCountdown();
       }
 
       if (msg.type === "typing") {
@@ -110,8 +116,10 @@ function sendMessage() {
   messageInput.value = "";
   stopTyping();
 
-  hasSentMessageSelf = true;
-  checkCancelCountdown();
+  hasSentMessage = true;
+  if (window.partnerSentMessage) {
+    stopCountdown();
+  }
 }
 
 function leaveChat() {
@@ -149,28 +157,28 @@ function stopTyping() {
 }
 
 function startCountdown() {
-  countdownDisplay.textContent = "⏱️ 剩餘 5:00";
-  countdownInterval = setInterval(() => {
-    remainingTime--;
-    if (remainingTime <= 0) {
-      clearInterval(countdownInterval);
-      status.textContent = "時間到，聊天室即將關閉。";
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify("leave"));
-        ws.close();
-      }
-      setTimeout(() => location.reload(), 3000);
-    } else {
-      const minutes = Math.floor(remainingTime / 60);
-      const seconds = String(remainingTime % 60).padStart(2, "0");
-      countdownDisplay.textContent = `⏱️ 剩餘 ${minutes}:${seconds}`;
+  countdownTime = 5 * 60;
+  countdown.classList.remove("hidden");
+  updateCountdown();
+  timerInterval = setInterval(() => {
+    countdownTime--;
+    updateCountdown();
+
+    if (countdownTime <= 0) {
+      clearInterval(timerInterval);
+      status.textContent = "連線已中斷，請重新整理。";
+      leaveChat();
     }
   }, 1000);
 }
 
-function checkCancelCountdown() {
-  if (hasSentMessageSelf && hasSentMessagePartner) {
-    clearInterval(countdownInterval);
-    countdownDisplay.textContent = "⏱️ 雙方已發話，倒數計時已取消";
-  }
+function stopCountdown() {
+  clearInterval(timerInterval);
+  countdown.classList.add("hidden");
+}
+
+function updateCountdown() {
+  const min = Math.floor(countdownTime / 60);
+  const sec = countdownTime % 60;
+  countdown.textContent = `剩餘時間：${min}:${sec < 10 ? "0" : ""}${sec}`;
 }
