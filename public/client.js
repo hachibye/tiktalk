@@ -19,22 +19,43 @@ const countdown = document.getElementById("countdown");
 const partnerNameEl = document.getElementById("partner-name");
 const waitingInfo = document.getElementById("waiting-info");
 
+function escapeHTML(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function showWaitingInfo(counts) {
+  waitingInfo.classList.remove("hidden");
+  waitingInfo.textContent = `等待配對中：T(${counts.T}) P(${counts.P}) H(${counts.H})`;
+}
+function hideWaitingInfo() {
+  waitingInfo.classList.add("hidden");
+}
+
 // 初始化 WebSocket
 function initSocket() {
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
   const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
   socket = new WebSocket(protocol + window.location.host);
 
   socket.addEventListener("message", (event) => {
     const data = JSON.parse(event.data);
-
     if (data.type === "waiting") {
-      waitingInfo.classList.remove("hidden");
-      waitingInfo.textContent = `等待配對中：T(${data.counts.T}) P(${data.counts.P}) H(${data.counts.H})`;
+      showWaitingInfo(data.counts);
     }
+  });
+  socket.addEventListener("error", () => {
+    status.textContent = "WebSocket 連線錯誤，請稍後重試。";
   });
 }
 
-initSocket(); // 頁面一載入即建立 WebSocket 連線
+initSocket();
 
 function startChat() {
   const nickname = nicknameInput.value.trim();
@@ -42,7 +63,6 @@ function startChat() {
     alert("請輸入暱稱");
     return;
   }
-
   const selfType = document.getElementById("selfType").value;
   const targetTypes = Array.from(document.querySelectorAll(".targetType:checked")).map(
     (el) => el.value
@@ -51,15 +71,13 @@ function startChat() {
     alert("請至少選擇一個想找的對象");
     return;
   }
-
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: "leave" }));
     socket.close();
   }
-
-  const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
-  socket = new WebSocket(protocol + window.location.host);
-
+  // 重新建立 WebSocket
+  socket = null;
+  initSocket();
   socket.addEventListener("open", () => {
     socket.send(
       JSON.stringify({
@@ -70,10 +88,8 @@ function startChat() {
       })
     );
   });
-
   socket.addEventListener("message", (event) => {
     const data = JSON.parse(event.data);
-
     if (data.type === "matched") {
       matched = true;
       lobby.classList.add("hidden");
@@ -82,26 +98,21 @@ function startChat() {
       partnerName = data.partner;
       partnerNameEl.textContent = partnerName;
       hideRoleSelection();
-      waitingInfo.classList.add("hidden");
+      hideWaitingInfo();
       startCountdown();
     }
-
     if (data.type === "message") {
       appendMessage(data.nickname, data.text);
       messageSentByOther = true;
     }
-
     if (data.type === "partner-left") {
       appendMessage("系統", "對方已離開聊天室。", "system");
       messageBox.disabled = true;
     }
-
     if (data.type === "waiting") {
-      waitingInfo.classList.remove("hidden");
-      waitingInfo.textContent = `等待配對中：T(${data.counts.T}) P(${data.counts.P}) H(${data.counts.H})`;
+      showWaitingInfo(data.counts);
     }
   });
-
   socket.addEventListener("close", () => {
     stopCountdown();
     if (matched) {
@@ -116,15 +127,14 @@ function startChat() {
         messageSentBySelf = false;
         messageSentByOther = false;
         resetRoleInputs();
-        waitingInfo.classList.remove("hidden");
+        showWaitingInfo({ T: 0, P: 0, H: 0 });
       }, 1500);
     } else {
       status.textContent = "連線已中斷，請重新開始。";
     }
   });
-
   socket.addEventListener("error", () => {
-    console.warn("WebSocket error");
+    status.textContent = "WebSocket 連線錯誤，請稍後重試。";
   });
 }
 
@@ -139,7 +149,6 @@ function sendMessage() {
 
 function appendMessage(sender, text, type = "partner") {
   const msg = document.createElement("div");
-
   let bubbleClass = "rounded-xl px-4 py-2 max-w-[70%] text-sm mb-2 ";
   if (type === "self") {
     bubbleClass += "bg-green-100 text-right self-end ml-auto";
@@ -148,9 +157,8 @@ function appendMessage(sender, text, type = "partner") {
   } else {
     bubbleClass += "bg-white border border-gray-300 text-left self-start";
   }
-
   msg.className = bubbleClass;
-  msg.innerHTML = `<span class='font-semibold mr-1'>${sender}：</span><span>${text}</span>`;
+  msg.innerHTML = `<span class='font-semibold mr-1'>${escapeHTML(sender)}：</span><span>${escapeHTML(text)}</span>`;
   messages.appendChild(msg);
   messages.scrollTop = messages.scrollHeight;
 }
