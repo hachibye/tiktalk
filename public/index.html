@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>匿名即時配對聊天室</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>匿名即時聊天室</title>
   <script defer src="/client.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -11,64 +11,48 @@
   <div class="w-full max-w-md bg-white rounded-xl shadow-lg p-6 space-y-4">
     <h1 class="text-xl font-bold text-center">匿名即時聊天室</h1>
 
-    <!-- Lobby -->
-    <!-- 角色選擇 -->
-    <div id="role-selection" class="space-y-2 mt-4">
+    <!-- 身份選擇 -->
+    <div class="space-y-2 mt-4" id="identity-box">
       <label class="block text-sm font-medium text-gray-700">你是什麼？</label>
       <select id="selfType" class="w-full border p-2 rounded">
         <option value="T">T</option>
         <option value="P">P</option>
         <option value="H">H</option>
       </select>
+    </div>
 
-      <label class="block text-sm font-medium text-gray-700 mt-2">你想找誰？</label>
+    <!-- 配對目標選擇 -->
+    <div id="preference-box">
+      <label class="block text-sm font-medium text-gray-700">你想找誰？</label>
       <div class="flex space-x-2">
-        <label><input type="checkbox" class="targetType" value="T"> T</label>
-        <label><input type="checkbox" class="targetType" value="P"> P</label>
-        <label><input type="checkbox" class="targetType" value="H"> H</label>
+        <label><input type="checkbox" class="targetType" value="T" /> T</label>
+        <label><input type="checkbox" class="targetType" value="P" /> P</label>
+        <label><input type="checkbox" class="targetType" value="H" /> H</label>
       </div>
     </div>
 
-    <script>
-    function startChat() {
-      const nickname = document.getElementById("nickname").value;
-      const selfType = document.getElementById("selfType").value;
-      const targetTypes = Array.from(document.querySelectorAll(".targetType:checked")).map(cb => cb.value);
-      const socket = new WebSocket("ws://" + location.host);
-
-      socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "join", nickname, selfType, targetTypes }));
-      };
-
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        document.getElementById("status").textContent = data.message || "";
-      };
-    }
-    </script>
-
+    <!-- 暱稱與開始 -->
     <div id="lobby">
       <input id="nickname" type="text" placeholder="輸入你的暱稱" class="w-full p-2 border rounded" />
       <button id="start" onclick="startChat()" class="w-full bg-blue-500 text-white py-2 rounded mt-2 hover:bg-blue-600">開始聊天</button>
     </div>
 
     <!-- 狀態與提示 -->
-    <div id="status" class="text-sm text-center text-gray-600"></div>
+    <div id="status" class="text-sm text-center text-gray-600 mt-2"></div>
+    <div id="waiting-info" class="text-center text-sm text-gray-500"></div>
 
-    <!-- Chat Room -->
+    <!-- 聊天室 -->
     <div id="chat" class="hidden flex flex-col space-y-2">
       <div class="text-center text-sm text-gray-600">
         你正在與 <span id="partner-name" class="font-semibold text-black"></span> 聊天
       </div>
-
       <div class="text-center text-sm text-gray-600">
         剩餘時間：<span id="countdown" class="font-mono">05:00</span>
       </div>
-
+      <div id="talk-warning" class="text-sm text-red-500 text-center hidden"></div>
       <div id="messages" class="flex flex-col h-64 overflow-y-auto border p-2 rounded space-y-1 bg-gray-50"></div>
       <div id="typing-indicator" class="text-xs text-gray-500 h-4 px-1"></div>
       <textarea id="message" placeholder="輸入訊息..." class="w-full p-2 border rounded resize-none h-20"></textarea>
-
       <div class="flex justify-between space-x-2 mt-2">
         <button onclick="leaveChat()" class="flex-1 bg-red-500 text-white py-2 rounded hover:bg-red-600">離開聊天室</button>
       </div>

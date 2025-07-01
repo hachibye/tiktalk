@@ -1,152 +1,182 @@
-const socket = new WebSocket("ws://" + window.location.host);
-
-const lobby = document.getElementById("lobby");
-const chat = document.getElementById("chat");
-const nicknameInput = document.getElementById("nickname");
-const selfTypeInput = document.getElementById("selfType");
-const targetTypeInputs = document.querySelectorAll(".targetType");
-const messageInput = document.getElementById("message");
-const messages = document.getElementById("messages");
-const status = document.getElementById("status");
-const countdownDisplay = document.getElementById("countdown");
-const typingIndicator = document.getElementById("typing-indicator");
-
+// 正確版 client.js - 支援配對成功開啟聊天室與等待邏輯（Tailwind 美化 UI）
+let socket;
 let matched = false;
+let partnerName = "";
 let countdownTimer;
-let countdown = 300;
-let retryTimer;
-let hasSpoken = false;
-let partnerHasSpoken = false;
-let typingTimeout;
+let countdownSeconds = 300;
+let messageSentBySelf = false;
+let messageSentByOther = false;
 
-function sendMessage() {
-  const message = messageInput.value.trim();
-  if (!message) return;
-  socket.send(JSON.stringify({ type: "message", message, nickname: nicknameInput.value }));
-  messageInput.value = "";
-  appendMessage(nicknameInput.value, message, true);
-  hasSpoken = true;
-}
+const nicknameInput = document.getElementById("nickname");
+const startButton = document.getElementById("start");
+const status = document.getElementById("status");
+const chat = document.getElementById("chat");
+const lobby = document.getElementById("lobby");
+const messageBox = document.getElementById("message");
+const messages = document.getElementById("messages");
+const typingIndicator = document.getElementById("typing-indicator");
+const countdown = document.getElementById("countdown");
+const partnerNameEl = document.getElementById("partner-name");
+const waitingInfo = document.getElementById("waiting-info");
 
-function appendMessage(sender, message, isSelf = false) {
-  const div = document.createElement("div");
-  div.className = isSelf ? "text-right" : "text-left";
-  div.innerHTML = `<span class="inline-block bg-${isSelf ? "blue" : "gray"}-200 px-2 py-1 rounded">${sender}：${message}</span>`;
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
-}
+function startChat() {
+  const nickname = nicknameInput.value.trim();
+  if (!nickname) {
+    alert("請輸入暱稱");
+    return;
+  }
 
-function leaveChat() {
-  socket.send(JSON.stringify({ type: "leave" }));
-  clearInterval(countdownTimer);
-  status.textContent = "你已離開聊天室。";
-  setTimeout(() => {
-    window.location.href = "/";
-  }, 3000);
-}
+  const selfType = document.getElementById("selfType").value;
+  const targetTypes = Array.from(document.querySelectorAll(".targetType:checked")).map(
+    (el) => el.value
+  );
+  if (!targetTypes.length) {
+    alert("請至少選擇一個想找的對象");
+    return;
+  }
 
-function startCountdown() {
-  clearInterval(countdownTimer);
-  countdown = 300;
-  countdownTimer = setInterval(() => {
-    if (countdown <= 0) {
-      clearInterval(countdownTimer);
-      leaveChat();
-    }
-    const min = String(Math.floor(countdown / 60)).padStart(2, "0");
-    const sec = String(countdown % 60).padStart(2, "0");
-    countdownDisplay.textContent = `${min}:${sec}`;
-    countdown--;
-  }, 1000);
-}
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "leave" }));
+    socket.close();
+  }
 
-socket.addEventListener("open", () => {
-  document.getElementById("start").addEventListener("click", () => {
-    // ✅ 修正身份殘留錯誤
-    matched = false;
-    hasSpoken = false;
-    partnerHasSpoken = false;
+  socket = new WebSocket("ws://" + window.location.host);
 
-    const nickname = nicknameInput.value || "匿名";
-    const selfType = selfTypeInput.value;
-    const targetTypes = Array.from(targetTypeInputs)
-      .filter((cb) => cb.checked)
-      .map((cb) => cb.value);
-
-    socket.send(JSON.stringify({
-      type: "join",
-      nickname,
-      selfType,
-      targetTypes
-    }));
-
-    status.textContent = "等待配對中...";
-    retryTimer = setTimeout(() => {
-      if (!matched) {
-        socket.send(JSON.stringify({
-          type: "join",
-          nickname,
-          selfType,
-          targetTypes
-        }));
-        status.textContent = "仍在配對中，已自動重試...";
-      }
-    }, 10000);
+  socket.addEventListener("open", () => {
+    socket.send(
+      JSON.stringify({
+        type: "join",
+        nickname,
+        selfType,
+        targetTypes,
+      })
+    );
   });
-});
 
-socket.addEventListener("message", (event) => {
-  try {
+  socket.addEventListener("message", (event) => {
     const data = JSON.parse(event.data);
 
     if (data.type === "matched") {
-      if (matched) return; // ✅ 已配對過，不重複進聊天室
       matched = true;
-
-      clearTimeout(retryTimer);
       lobby.classList.add("hidden");
       chat.classList.remove("hidden");
-
       status.textContent = "已成功配對，開始聊天";
-      countdownDisplay.textContent = "⏳ 開始倒數計時...";
+      partnerName = data.partner;
+      partnerNameEl.textContent = partnerName;
+      hideRoleSelection();
+      waitingInfo.classList.add("hidden");
       startCountdown();
     }
 
     if (data.type === "message") {
-      if (!partnerHasSpoken) partnerHasSpoken = true;
-      if (hasSpoken && partnerHasSpoken) clearInterval(countdownTimer);
-      appendMessage(data.nickname, data.message, false);
+      appendMessage(data.nickname, data.text);
+      messageSentByOther = true;
     }
 
-    if (data.type === "typing") {
-      typingIndicator.textContent = `${data.nickname} 輸入中...`;
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        typingIndicator.textContent = "";
-      }, 3000);
+    if (data.type === "partner-left") {
+      appendMessage("系統", "對方已離開聊天室。", "system");
+      messageBox.disabled = true;
     }
 
-    if (data.type === "stopTyping") {
-      typingIndicator.textContent = "";
+    if (data.type === "waiting") {
+      waitingInfo.classList.remove("hidden");
+      waitingInfo.textContent = `等待配對中：T(${data.counts.T}) P(${data.counts.P}) H(${data.counts.H})`;
     }
+  });
 
-    if (data.type === "status") {
-      status.textContent = data.message;
+  socket.addEventListener("close", () => {
+    if (!matched) {
+      status.textContent = "連線已中斷，請重新開始。";
     }
-  } catch (err) {
-    console.error("無法解析訊息：", event.data);
+    stopCountdown();
+  });
+}
+
+function sendMessage() {
+  const text = messageBox.value.trim();
+  if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({ type: "message", text }));
+  appendMessage("你", text, "self");
+  messageBox.value = "";
+  messageSentBySelf = true;
+}
+
+function appendMessage(sender, text, type = "partner") {
+  const msg = document.createElement("div");
+
+  let bubbleClass = "rounded-xl px-4 py-2 max-w-[70%] text-sm mb-2 ";
+  if (type === "self") {
+    bubbleClass += "bg-green-100 text-right self-end ml-auto";
+  } else if (type === "system") {
+    bubbleClass += "bg-gray-200 text-center italic text-gray-600 mx-auto";
+  } else {
+    bubbleClass += "bg-white border border-gray-300 text-left self-start";
   }
-});
 
-messageInput.addEventListener("input", () => {
-  socket.send(JSON.stringify({ type: "typing", nickname: nicknameInput.value }));
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => {
-    socket.send(JSON.stringify({ type: "stopTyping", nickname: nicknameInput.value }));
+  msg.className = bubbleClass;
+  msg.innerHTML = `<span class='font-semibold mr-1'>${sender}：</span><span>${text}</span>`;
+  messages.appendChild(msg);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function startCountdown() {
+  countdownSeconds = 300;
+  updateCountdownDisplay();
+  countdownTimer = setInterval(() => {
+    countdownSeconds--;
+    updateCountdownDisplay();
+    if (countdownSeconds <= 0 && (!messageSentBySelf || !messageSentByOther)) {
+      appendMessage("系統", "閒置時間過久，自動離開聊天室。", "system");
+      socket.close();
+      clearInterval(countdownTimer);
+      chat.classList.add("hidden");
+      lobby.classList.remove("hidden");
+      resetRoleInputs();
+    }
   }, 1000);
-});
+}
 
-messageInput.addEventListener("keydown", (e) => {
+function updateCountdownDisplay() {
+  const minutes = Math.floor(countdownSeconds / 60).toString().padStart(2, "0");
+  const seconds = (countdownSeconds % 60).toString().padStart(2, "0");
+  countdown.textContent = `${minutes}:${seconds}`;
+  if (messageSentBySelf && messageSentByOther) {
+    clearInterval(countdownTimer);
+  }
+}
+
+function leaveChat() {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "leave" }));
+    socket.close();
+  }
+  chat.classList.add("hidden");
+  lobby.classList.remove("hidden");
+  messageBox.disabled = false;
+  matched = false;
+  messages.innerHTML = "";
+  countdown.textContent = "05:00";
+  messageSentBySelf = false;
+  messageSentByOther = false;
+  resetRoleInputs();
+  waitingInfo.classList.remove("hidden");
+}
+
+function hideRoleSelection() {
+  const identityBox = document.getElementById("identity-box");
+  const preferenceBox = document.getElementById("preference-box");
+  if (identityBox) identityBox.style.display = "none";
+  if (preferenceBox) preferenceBox.style.display = "none";
+}
+
+function resetRoleInputs() {
+  const identityBox = document.getElementById("identity-box");
+  const preferenceBox = document.getElementById("preference-box");
+  if (identityBox) identityBox.style.display = "block";
+  if (preferenceBox) preferenceBox.style.display = "block";
+}
+
+messageBox?.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
