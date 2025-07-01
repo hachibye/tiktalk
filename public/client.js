@@ -19,6 +19,23 @@ const countdown = document.getElementById("countdown");
 const partnerNameEl = document.getElementById("partner-name");
 const waitingInfo = document.getElementById("waiting-info");
 
+// 初始化 WebSocket
+function initSocket() {
+  const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+  socket = new WebSocket(protocol + window.location.host);
+
+  socket.addEventListener("message", (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.type === "waiting") {
+      waitingInfo.classList.remove("hidden");
+      waitingInfo.textContent = `等待配對中：T(${data.counts.T}) P(${data.counts.P}) H(${data.counts.H})`;
+    }
+  });
+}
+
+initSocket(); // 頁面一載入即建立 WebSocket 連線
+
 function startChat() {
   const nickname = nicknameInput.value.trim();
   if (!nickname) {
@@ -40,7 +57,8 @@ function startChat() {
     socket.close();
   }
 
-  socket = new WebSocket("ws://" + window.location.host);
+  const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+  socket = new WebSocket(protocol + window.location.host);
 
   socket.addEventListener("open", () => {
     socket.send(
@@ -143,6 +161,10 @@ function updateCountdownDisplay() {
   if (messageSentBySelf && messageSentByOther) {
     clearInterval(countdownTimer);
   }
+}
+
+function stopCountdown() {
+  clearInterval(countdownTimer);
 }
 
 function leaveChat() {
