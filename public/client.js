@@ -103,10 +103,28 @@ function startChat() {
   });
 
   socket.addEventListener("close", () => {
-    if (!matched) {
+    stopCountdown();
+    if (matched) {
+      appendMessage("系統", "連線中斷，將返回首頁。", "system");
+      setTimeout(() => {
+        chat.classList.add("hidden");
+        lobby.classList.remove("hidden");
+        messageBox.disabled = false;
+        matched = false;
+        messages.innerHTML = "";
+        countdown.textContent = "05:00";
+        messageSentBySelf = false;
+        messageSentByOther = false;
+        resetRoleInputs();
+        waitingInfo.classList.remove("hidden");
+      }, 1500);
+    } else {
       status.textContent = "連線已中斷，請重新開始。";
     }
-    stopCountdown();
+  });
+
+  socket.addEventListener("error", () => {
+    console.warn("WebSocket error");
   });
 }
 
