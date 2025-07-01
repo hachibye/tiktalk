@@ -124,8 +124,8 @@ function cleanup(ws) {
         delete client.partner;
       }
     });
-  } else {
-    const index = pool[ws.selfType]?.indexOf(ws);
+  } else if (ws.selfType && pool[ws.selfType]) {
+    const index = pool[ws.selfType].indexOf(ws);
     if (index !== -1) pool[ws.selfType].splice(index, 1);
     broadcastWaitingCounts();
   }
@@ -135,6 +135,7 @@ server.listen(3000, () => {
   console.log("Server listening on http://localhost:3000");
 });
 
+// 定期清理長時間未互動的 session
 setInterval(() => {
   const now = Date.now();
   wss.clients.forEach((ws) => {
