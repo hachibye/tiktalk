@@ -12,6 +12,41 @@
     <h1 class="text-xl font-bold text-center">匿名即時聊天室</h1>
 
     <!-- Lobby -->
+    <!-- 角色選擇 -->
+    <div id="role-selection" class="space-y-2 mt-4">
+      <label class="block text-sm font-medium text-gray-700">你是什麼？</label>
+      <select id="selfType" class="w-full border p-2 rounded">
+        <option value="T">T</option>
+        <option value="P">P</option>
+        <option value="H">H</option>
+      </select>
+
+      <label class="block text-sm font-medium text-gray-700 mt-2">你想找誰？</label>
+      <div class="flex space-x-2">
+        <label><input type="checkbox" class="targetType" value="T"> T</label>
+        <label><input type="checkbox" class="targetType" value="P"> P</label>
+        <label><input type="checkbox" class="targetType" value="H"> H</label>
+      </div>
+    </div>
+
+    <script>
+    function startChat() {
+      const nickname = document.getElementById("nickname").value;
+      const selfType = document.getElementById("selfType").value;
+      const targetTypes = Array.from(document.querySelectorAll(".targetType:checked")).map(cb => cb.value);
+      const socket = new WebSocket("ws://" + location.host);
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: "join", nickname, selfType, targetTypes }));
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        document.getElementById("status").textContent = data.message || "";
+      };
+    }
+    </script>
+
     <div id="lobby">
       <input id="nickname" type="text" placeholder="輸入你的暱稱" class="w-full p-2 border rounded" />
       <button id="start" onclick="startChat()" class="w-full bg-blue-500 text-white py-2 rounded mt-2 hover:bg-blue-600">開始聊天</button>
@@ -36,7 +71,6 @@
 
       <div class="flex justify-between space-x-2 mt-2">
         <button onclick="leaveChat()" class="flex-1 bg-red-500 text-white py-2 rounded hover:bg-red-600">離開聊天室</button>
-        <button onclick="location.reload()" class="flex-1 bg-gray-400 text-white py-2 rounded hover:bg-gray-500">回到首頁</button>
       </div>
     </div>
   </div>

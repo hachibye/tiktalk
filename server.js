@@ -3,7 +3,6 @@ const fs = require("fs");
 const path = require("path");
 const WebSocket = require("ws");
 
-// 靜態檔案服務處理
 const serveStatic = (req, res) => {
   const filePath = path.join(__dirname, "public", req.url === "/" ? "index.html" : req.url.slice(1));
   fs.readFile(filePath, (err, data) => {
@@ -25,143 +24,116 @@ const serveStatic = (req, res) => {
 };
 
 const server = http.createServer(serveStatic);
-
-// WebSocket 設定
 const wss = new WebSocket.Server({ server });
 
-let waiting = [];
-const pairs = new Map();
-const lastActive = new Map();
-const messageFlags = new Map(); // 紀錄每一對雙方是否都有發言
+const pool = { T: [], P: [], H: [] };
 
 wss.on("connection", (ws, req) => {
   const ip = req.socket.remoteAddress;
   ws.ip = ip;
 
   ws.on("message", (data) => {
-    const str = data.toString();
-
-    if (str.startsWith("start:")) {
-      ws.nickname = str.slice(6);
-      if (!ws.nickname) return;
-      waiting.push(ws);
-      tryPair();
-      return;
-    }
-
-    let parsed;
+    let msg;
     try {
-      parsed = JSON.parse(str);
+      msg = JSON.parse(data);
     } catch {
       return;
     }
 
-    if (parsed.type === "message") {
-      const partner = pairs.get(ws);
-      if (partner && partner.readyState === WebSocket.OPEN) {
-        lastActive.set(ws, Date.now());
-        lastActive.set(partner, Date.now());
+    if (msg.type === "join") {
+      ws.meta = {
+        nickname: msg.nickname || "匿名",
+        selfType: msg.selfType,
+        targetTypes: msg.targetTypes || []
+      };
 
-        const pairKey = getPairKey(ws, partner);
-        const prev = messageFlags.get(pairKey) || {};
-        messageFlags.set(pairKey, {
-          [ws.nickname]: true,
-          [partner.nickname]: prev[partner.nickname] || false
-        });
+      // 移除舊身份殘留
+      if (ws.meta.selfType && pool[ws.meta.selfType]) {
+        pool[ws.meta.selfType] = pool[ws.meta.selfType].filter((u) => u !== ws);
+      }
 
-        ws.send(JSON.stringify({ type: "message", message: parsed.message, nickname: parsed.nickname }));
-        partner.send(JSON.stringify({ type: "message", message: parsed.message, nickname: parsed.nickname }));
+const match = findMatch(ws);
+if (!match || !match.meta) {
+  pool[ws.meta.selfType].push(ws);
+  ws.send(JSON.stringify({ message: "尚未配對成功，請稍候..." }));
+  return;
+}
 
-        const flags = messageFlags.get(pairKey);
-        if (flags[ws.nickname] && flags[partner.nickname]) {
-          clearTimeout(ws.inactivityTimer);
-          clearTimeout(partner.inactivityTimer);
+// ✅ 雙方確認後才送 matched
+ws.send(JSON.stringify({ type: "matched", partner: match.meta.nickname }));
+match.send(JSON.stringify({ type: "matched", partner: ws.meta.nickname }));
+
+      // ✅ 雙方確認後才配對
+      ws.send(JSON.stringify({ type: "matched", partner: match.meta.nickname }));
+      match.send(JSON.stringify({ type: "matched", partner: ws.meta.nickname }));
+    }
+
+    if (msg.type === "message") {
+      const payload = JSON.stringify({
+        type: "message",
+        message: msg.message,
+        nickname: msg.nickname
+      });
+
+      wss.clients.forEach(client => {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(payload);
         }
-      }
-    } else if (parsed.type === "typing") {
-      const partner = pairs.get(ws);
-      if (partner && partner.readyState === WebSocket.OPEN) {
-        partner.send(JSON.stringify({ type: "typing", nickname: parsed.nickname }));
-      }
-    } else if (parsed.type === "stopTyping") {
-      const partner = pairs.get(ws);
-      if (partner && partner.readyState === WebSocket.OPEN) {
-        partner.send(JSON.stringify({ type: "stopTyping", nickname: parsed.nickname }));
-      }
-    } else if (parsed === "leave") {
-      disconnect(ws);
+      });
+    }
+
+    if (msg.type === "typing" || msg.type === "stopTyping") {
+      const payload = JSON.stringify({ type: msg.type, nickname: msg.nickname });
+      wss.clients.forEach(client => {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(payload);
+        }
+      });
+    }
+
+    if (msg === "leave") {
+      ws.close();
     }
   });
 
-  ws.on("close", () => disconnect(ws));
+  ws.on("close", () => {
+    if (ws.meta?.selfType) {
+      pool[ws.meta.selfType] = pool[ws.meta.selfType].filter((u) => u !== ws);
+    }
+
+    wss.clients.forEach(client => {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: "status",
+          message: "對方已離開聊天室。"
+        }));
+      }
+    });
+  });
 });
 
-function tryPair() {
-  if (waiting.length >= 2) {
-    const ws1 = waiting.shift();
-    const ws2 = waiting.shift();
-    if (ws1.readyState !== WebSocket.OPEN || ws2.readyState !== WebSocket.OPEN) return;
+function findMatch(ws) {
+  for (const target of ws.meta.targetTypes) {
+    const candidates = pool[target];
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i];
 
-    pairs.set(ws1, ws2);
-    pairs.set(ws2, ws1);
-    lastActive.set(ws1, Date.now());
-    lastActive.set(ws2, Date.now());
+      if (candidate.readyState !== WebSocket.OPEN) {
+        candidates.splice(i, 1);
+        i--;
+        continue;
+      }
 
-    const pairKey = getPairKey(ws1, ws2);
-    messageFlags.set(pairKey, {
-      [ws1.nickname]: false,
-      [ws2.nickname]: false
-    });
-
-    ws1.send(JSON.stringify({ type: "matched", partner: ws2.nickname }));
-    ws2.send(JSON.stringify({ type: "matched", partner: ws1.nickname }));
-
-    const timer = setTimeout(() => checkInactivity(ws1, ws2), 5 * 60 * 1000);
-    ws1.inactivityTimer = timer;
-    ws2.inactivityTimer = timer;
-  }
-}
-
-function checkInactivity(ws1, ws2) {
-  const now = Date.now();
-  const last1 = lastActive.get(ws1) || 0;
-  const last2 = lastActive.get(ws2) || 0;
-  const fiveMinutes = 5 * 60 * 1000;
-
-  if (now - last1 > fiveMinutes || now - last2 > fiveMinutes) {
-    if (ws1.readyState === WebSocket.OPEN) {
-      ws1.send(JSON.stringify({ type: "status", message: "連線已中斷，請重新整理。" }));
-      ws1.send(JSON.stringify({ type: "reload" }));
+      if (candidate.meta?.targetTypes.includes(ws.meta.selfType)) {
+        candidates.splice(i, 1);
+        return candidate;
+      }
     }
-    if (ws2.readyState === WebSocket.OPEN) {
-      ws2.send(JSON.stringify({ type: "status", message: "連線已中斷，請重新整理。" }));
-      ws2.send(JSON.stringify({ type: "reload" }));
-    }
-    pairs.delete(ws1);
-    pairs.delete(ws2);
-    messageFlags.delete(getPairKey(ws1, ws2));
   }
-}
-
-function disconnect(ws) {
-  const partner = pairs.get(ws);
-  if (partner && partner.readyState === WebSocket.OPEN) {
-    partner.send(JSON.stringify({ type: "status", message: "對方已離開聊天室" }));
-    partner.send(JSON.stringify({ type: "reload" }));
-    pairs.delete(partner);
-    messageFlags.delete(getPairKey(ws, partner));
-  }
-  pairs.delete(ws);
-  lastActive.delete(ws);
-  waiting = waiting.filter(w => w !== ws);
-}
-
-function getPairKey(ws1, ws2) {
-  const names = [ws1.nickname, ws2.nickname].sort();
-  return names.join("_");
+  return null;
 }
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
+  console.log(`伺服器已啟動：http://localhost:${PORT}`);
 });
